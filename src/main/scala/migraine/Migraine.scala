@@ -82,17 +82,19 @@ object Migraine {
     ZIO.serviceWithZIO[Migraine](_.migrate)
 
   val live: ZLayer[DataSource, Nothing, Migraine] =
-    DatabaseManager.live >>> ZLayer.fromFunction(Migraine.apply _)
+    DatabaseManager.live >>> layer
+
+  def custom(url: String, user: String, password: String): ULayer[Migraine] =
+    DatabaseManager.custom(url, user, password) >>> layer
+
+  private lazy val layer: ZLayer[DatabaseManager, Nothing, Migraine] =
+    ZLayer.fromFunction(Migraine.apply _)
 }
 
 object MigrationsDemo extends ZIOAppDefault {
-
-  val program =
-    for {
-      manager <- ZIO.succeed(DatabaseManager.make)
-      migraine = Migraine(manager)
-      _       <- migraine.migrate
-    } yield ()
-
-  val run = program
+  val run =
+    Migraine.migrate
+      .provide(
+        Migraine.custom("jdbc:postgresql://localhost:5432/headache", "kit", "")
+      )
 }
