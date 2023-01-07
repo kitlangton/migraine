@@ -1,19 +1,28 @@
 package migraine
 
 import org.postgresql.ds.PGSimpleDataSource
-import zio.{Task, ULayer, ZIO, ZLayer}
+import zio.{IO, Task, ULayer, ZIO, ZLayer}
 
 import javax.sql.DataSource
 
+final case class Metadata(id: MigrationId, name: String, hash: String)
+
 final case class DatabaseManager(dataSource: DataSource) {
 
-  def executeSQL(string: String): Task[Unit] = ZIO.attemptBlocking {
-    val conn = dataSource.getConnection
-    val stmt = conn.prepareStatement(string)
-    println(s"Executing SQL: $string")
-    stmt.execute()
-    conn.close()
-  }
+  def executeSQL(string: String): IO[MigraineError, Unit] =
+    ZIO
+      .attemptBlocking {
+        val conn = dataSource.getConnection
+        val stmt = conn.prepareStatement(string)
+        println(s"Executing SQL: $string")
+        stmt.execute()
+        conn.close()
+      }
+      .refineOrDie { //
+        case sqlException: org.postgresql.util.PSQLException =>
+          MigraineError.SqlError.fromSQLException(string, sqlException)
+      }
+      .unit
 
   def createMetadataTableIfNotExists: Task[Unit] =
     executeSQL {
@@ -32,14 +41,46 @@ CREATE TABLE IF NOT EXISTS migraine_metadata (
       s"INSERT INTO migraine_metadata (id, name, hash) VALUES (${migration.id.id}, '${migration.name}', 'TODO');"
     }
 
-  def getLatestMigrationId: Task[MigrationId] = ZIO.attemptBlocking {
-    val conn = dataSource.getConnection
-    val stmt = conn.prepareStatement("SELECT id FROM migraine_metadata ORDER BY id DESC LIMIT 1")
-    val rs   = stmt.executeQuery()
-    val id   = if (rs.next()) rs.getInt("id") else 0
+  def getLatestMigrationId: Task[Option[MigrationId]] = ZIO.attemptBlocking {
+    val conn   = dataSource.getConnection
+    val stmt   = conn.prepareStatement("SELECT id FROM migraine_metadata ORDER BY id DESC LIMIT 1")
+    val rs     = stmt.executeQuery()
+    val result = Option.when(rs.next())(MigrationId(rs.getInt("id")))
     conn.close()
-    MigrationId(id)
+    result
   }
+
+  def getAllMetadata: Task[List[Metadata]] = ZIO.attemptBlocking {
+    val conn = dataSource.getConnection
+    val stmt = conn.prepareStatement("SELECT * FROM migraine_metadata")
+    val rs   = stmt.executeQuery()
+    val result = Iterator
+      .continually(rs.next())
+      .takeWhile(identity)
+      .map { _ =>
+        Metadata(MigrationId(rs.getInt("id")), rs.getString("name"), rs.getString("hash"))
+      }
+      .toList
+    conn.close()
+    result
+  }
+
+//  def getSchema: Task[String] = ZIO.attemptBlocking {
+//    // get all tables
+//    // get all columns for each table
+//    // get all constraints for each table
+//    // get all indexes for each table
+//    val conn = dataSource.getConnection
+//    val stmt = conn.prepareStatement("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
+//    val rs   = stmt.executeQuery()
+//    val tables = Iterator
+//      .continually(rs.next())
+//      .takeWhile(identity)
+//      .map(_ => rs.getString("table_name"))
+//      .toList
+//    conn.close()
+//    tables.mkString(", ")
+//  }
 }
 
 object DatabaseManager {
