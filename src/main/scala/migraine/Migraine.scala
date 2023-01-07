@@ -140,7 +140,7 @@ object Migraine {
   val migrate: ZIO[Migraine, Throwable, Unit] =
     ZIO.serviceWithZIO[Migraine](_.migrate)
 
-  private[migraine] def migratePath(migrationsPath: Path): ZIO[Migraine, Throwable, Unit] =
+  private[migraine] def migrateFolder(migrationsPath: Path): ZIO[Migraine, Throwable, Unit] =
     ZIO.serviceWithZIO[Migraine](_.migrateFolder(migrationsPath))
 
   private[migraine] def getAllMetadata: ZIO[Migraine, Throwable, List[Metadata]] =
