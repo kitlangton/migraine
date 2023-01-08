@@ -1,10 +1,8 @@
 package migraine
 
 import io.github.scottweaver.zio.testcontainers.postgres.ZPostgreSQLContainer
-import zio.ZIO
+import migraine.MigrationSpecUtils.getMigrationsPath
 import zio.test._
-
-import java.nio.file.Paths
 
 object SnapshotSpec extends ZIOSpecDefault {
 
@@ -12,8 +10,7 @@ object SnapshotSpec extends ZIOSpecDefault {
     suite("SnapshotSpec")(
       test("on a fresh database, starts from latest snapshot") {
         for {
-          path     <- ZIO.succeed(Paths.get("src/test/resources/migrations/snapshot_test_with_snapshot"))
-          _        <- Migraine.migrateFolder(path)
+          _        <- Migraine.migrateFolder(getMigrationsPath("snapshot_test_with_snapshot"))
           metadata <- Migraine.getAllMetadata
         } yield assertTrue {
           metadata.map(_.name) == List("create_users_and_posts", "add_slug_to_posts")
@@ -21,10 +18,8 @@ object SnapshotSpec extends ZIOSpecDefault {
       },
       test("on a previously migrated database, ignores snapshots") {
         for {
-          path1    <- ZIO.succeed(Paths.get("src/test/resources/migrations/snapshot_test_no_snapshot"))
-          _        <- Migraine.migrateFolder(path1)
-          path2    <- ZIO.succeed(Paths.get("src/test/resources/migrations/snapshot_test_with_snapshot"))
-          _        <- Migraine.migrateFolder(path2)
+          _        <- Migraine.migrateFolder(getMigrationsPath("snapshot_test_no_snapshot"))
+          _        <- Migraine.migrateFolder(getMigrationsPath("snapshot_test_with_snapshot"))
           metadata <- Migraine.getAllMetadata
         } yield assertTrue {
           metadata.map(_.name) == List("create_users", "create_posts", "add_slug_to_posts")

@@ -23,7 +23,7 @@ final case class Migraine(databaseManager: DatabaseManager) {
   // - delete all migration metadata
   // - re-migrate
 
-  private def findResourcePath(name: String): Task[Path] =
+  private[migraine] def findResourcePath(name: String): Task[Path] =
     ZIO.attempt(Paths.get(getClass.getResource(name).toURI))
 
   private[migraine] def getAllMetadata: Task[List[Metadata]] =

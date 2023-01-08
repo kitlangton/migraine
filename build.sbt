@@ -12,7 +12,7 @@ inThisBuild(
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
-lazy val root = (project in file("."))
+lazy val core = (project in file("modules/core"))
   .settings(
     name := "migraine",
     libraryDependencies ++= Seq(
@@ -21,6 +21,15 @@ lazy val root = (project in file("."))
       "org.postgresql"         % "postgresql"                        % "42.5.1",
       "io.github.scottweaver" %% "zio-2-0-testcontainers-postgresql" % "0.9.0",
       "org.slf4j"              % "slf4j-nop"                         % "2.0.5"
-    ),
-    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
+    )
   )
+
+lazy val cli = (project in file("modules/cli"))
+  .settings(
+    name := "migraine-cli",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio"      % "2.0.5",
+      "dev.zio" %% "zio-test" % "2.0.5" % Test
+    )
+  )
+  .dependsOn(core)
