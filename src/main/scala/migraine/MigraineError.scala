@@ -11,11 +11,8 @@ sealed trait MigraineError extends Throwable { self =>
 }
 
 object MigraineError {
-  final case class SqlError(
-      sql: String,
-      position: Int,
-      message: String
-  ) extends MigraineError
+
+  final case class SqlError(sql: String, position: Int, message: String) extends MigraineError
 
   object SqlError {
     // TODO: Improve error parsing and handle more cases

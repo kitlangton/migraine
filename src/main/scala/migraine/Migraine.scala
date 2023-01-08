@@ -7,79 +7,6 @@ import java.sql.Connection
 import javax.sql.DataSource
 import scala.jdk.CollectionConverters.IteratorHasAsScala
 
-/** # Migraine
-  *
-  * A minimal, modern database migration tool.
-  *
-  * ## Goals
-  *   - Helpful error messages
-  *   - Built-in CLI
-  *
-  * ## Todos
-  *   - Configurable database connection
-  *   - Configurable CLI (how and where to specify migrations folder, connection
-  *     info, etc?)
-  *     - migraine.conf? (home, project root, etc)
-  *     - the target local database will change per project
-  *   - Ensure migration metadata is saved transactionally along with migration
-  *   - Automatic migration tests
-  *   - Dry run (by default?)
-  *     - Schema diff
-  *     - Warn for non-reversible migrations
-  *   - Errors
-  *     - If a migration fails, the metadata and other migrations executed in
-  *       the same run should be rolled back.
-  *     - If accidentally duplicated version ids interactively prompt user to
-  *       resolve ambiguity
-  *     - postgres driver is missing (prompt user to add dependency)
-  *     - database connection issues
-  *     - ensure executed migrations haven't diverged from their stored file
-  *       (using checksum)
-  *   - Warnings
-  *     - adding column to existing table without default value
-  *     - missing migrations folder
-  *   - Snapshotting
-  *     - If fresh database, begin from most recent snapshot, otherwise, ignore
-  *       snapshots
-  *     - Create snapshot CLI command
-  *   - Generate down migrations automatically
-  *   - Rollback
-  *     - UX: Check to see how many migrations were run "recently", or in the
-  *       last batch (a group of migrations executed at the same time. If
-  *       there's more than just one, ask the user.
-  *   - Editing migrations
-  *     - If a user has edited the mostly recently run migration/migrations and
-  *       tries to run migrate again, ask the user if they want to rollback the
-  *       prior migration before running the edits. (we could store the SQL text
-  *       of the executed migrations... would that get too big?)
-  *
-  * ## Prior Art
-  *   - Flyway
-  *   - Liquibase
-  *   - Active Record (migrations)
-  *   - Play Evolutions
-  *   - DBEvolv (https://github.com/mnubo/dbevolv)
-  *   - Squitch (https://sqitch.org)
-  *   - Delta (https://delta.io)
-  */
-
-// How should migration snapshots work?
-//
-// - Ask the user up to which migration they want to snapshot
-// - Run all of the migrations up to that point on a fresh database (using docker/test containers?)
-// - Store the resulting database schema in a migration file
-//
-// Here's an example set of migrations and snapshots
-// M1 M2 M3 S3 M4 M5
-// - S3 is a snapshot of the database after migration M3
-// - M4 and M5 are new migrations that are applied on top of S3
-//
-// Scenarios
-// - When run on a fresh database
-//   - Find the latest snapshot, then run all migrations after that snapshot
-// - When run on a database that has already been migrated
-//   - Simply run all migrations that haven't been run yet, ignoring snapshots
-
 final case class Migraine(databaseManager: DatabaseManager) {
 
   private val DEFAULT_MIGRATIONS_PATH =
@@ -105,14 +32,14 @@ final case class Migraine(databaseManager: DatabaseManager) {
   private[migraine] def migrateFolder(migrationsPath: Path): Task[Unit] =
     for {
       allMigrations     <- getMigrations(migrationsPath)
-      latestSnapshot     = allMigrations.find(_.isSnapshot)
+      latestSnapshot     = allMigrations.findLast(_.isSnapshot)
       upMigrations       = allMigrations.filter(_.isUp)
       latestMigrationId <- databaseManager.getLatestMigrationId
       _ <- (latestMigrationId, latestSnapshot) match {
              // If there is at least one previously executed migration,
              // only execute newer Up migrations.
-             case (Some(latestMigration), _) =>
-               val migrationsToRun = upMigrations.dropWhile(_.id <= latestMigration)
+             case (Some(latestMigrationId), _) =>
+               val migrationsToRun = upMigrations.dropWhile(_.id <= latestMigrationId)
                runMigrationsInTransaction(migrationsToRun)
 
              // If there are no previously executed migrations, and there is a snapshot,
@@ -200,7 +127,12 @@ object Migraine {
 object MigrationsDemo extends ZIOAppDefault {
   val run = {
     for {
-      _ <- Migraine.migrate
+      // migraine new migration 'create users'
+      //
+      // V0010__create_users.sql
+      // ~/migraine.conf
+      // ./migraine.conf
+      _ <- Migraine.migrate // migraine ...
 //      _ <- ZIO.serviceWithZIO[DatabaseManager](_.getSchema).debug("SCHEMA")
     } yield ()
   }

@@ -19,15 +19,12 @@ object MigraineSpec extends ZIOSpecDefault {
       },
       test("lock on metadata table prevents concurrent migrations") {
         for {
-          f <- Migraine.migrateFolder(Paths.get("src/test/resources/migrations/lock_test")).fork
-          ef <- Migraine
-                  .migrateFolder(Paths.get("src/test/resources/migrations/lock_test_no_sleep"))
-                  .delay(200.millis)
-                  .flip
-                  .withClock(ClockLive)
-                  .fork
-          a <- f.join
-          b <- ef.join
+          _ <- Migraine.migrateFolder(Paths.get("src/test/resources/migrations/lock_test")) zipPar
+                 Migraine
+                   .migrateFolder(Paths.get("src/test/resources/migrations/lock_test_no_sleep"))
+                   .delay(200.millis)
+                   .flip
+                   .withClock(ClockLive)
         } yield assertTrue(true)
       }
     ).provide(

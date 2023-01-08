@@ -1,3 +1,8 @@
+-- migraine snapshot
+-- v5
+-- v1 .. v5 on a test container
+-- dump the schema
+-- V5_SNAPSHOT.sql
 CREATE TABLE users
 (
     id    uuid PRIMARY KEY,
