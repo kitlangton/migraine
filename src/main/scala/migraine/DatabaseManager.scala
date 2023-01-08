@@ -1,32 +1,53 @@
 package migraine
 
 import org.postgresql.ds.PGSimpleDataSource
-import zio.{IO, Task, ULayer, ZIO, ZLayer}
+import zio._
 
+import java.sql.Connection
 import javax.sql.DataSource
 
 final case class Metadata(id: MigrationId, name: String, hash: String)
 
 final case class DatabaseManager(dataSource: DataSource) {
 
-  def executeSQL(string: String): IO[MigraineError, Unit] =
-    ZIO
-      .attemptBlocking {
-        val conn = dataSource.getConnection
-        val stmt = conn.prepareStatement(string)
-        println(s"Executing SQL: $string")
-        stmt.execute()
-        conn.close()
-      }
-      .refineOrDie { //
-        case sqlException: org.postgresql.util.PSQLException =>
-          MigraineError.SqlError.fromSQLException(string, sqlException)
-      }
-      .unit
+  def executeSQL(string: String): ZIO[Connection, MigraineError, Unit] =
+    for {
+      conn <- ZIO.service[Connection]
+      _    <- ZIO.logInfo(s"Executing SQL: $string")
+      _ <-
+        ZIO
+          .attemptBlocking(conn.createStatement().execute(string))
+          .refineOrDie { case sqlException: org.postgresql.util.PSQLException =>
+            MigraineError.SqlError.fromSQLException(string, sqlException)
+          }
+    } yield ()
+
+  def transact[R: Tag, E <: Throwable, A](
+      effect: ZIO[Connection with R, E, A],
+      withLock: Boolean = true
+  ): ZIO[R, Throwable, A] =
+    ZIO.scoped[R] {
+      for {
+        conn     <- getConnection
+        connLayer = ZLayer.succeed(conn)
+        _        <- ZIO.attemptBlocking(conn.setAutoCommit(false))
+        _        <- acquireMetadataLock.provide(connLayer).when(withLock)
+        _        <- ZIO.addFinalizer(ZIO.succeedBlocking(conn.commit()))
+        res      <- effect.provideSome[R](connLayer)
+      } yield res
+    }
+
+  lazy val getConnection: ZIO[Scope, Throwable, Connection] =
+    ZIO.acquireRelease {
+      ZIO.attemptBlocking(dataSource.getConnection)
+    } { conn =>
+      ZIO.succeedBlocking(conn.close())
+    }
 
   def createMetadataTableIfNotExists: Task[Unit] =
-    executeSQL {
-      """
+    transact(
+      executeSQL {
+        """
 CREATE TABLE IF NOT EXISTS migraine_metadata (
   id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
@@ -34,9 +55,11 @@ CREATE TABLE IF NOT EXISTS migraine_metadata (
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
     """.trim
-    }
+      },
+      withLock = false
+    )
 
-  def saveRanMigration(migration: Migration): Task[Unit] =
+  def saveRanMigration(migration: Migration): ZIO[Connection, MigraineError, Unit] =
     executeSQL {
       s"INSERT INTO migraine_metadata (id, name, hash) VALUES (${migration.id.id}, '${migration.name}', 'TODO');"
     }
@@ -65,6 +88,10 @@ CREATE TABLE IF NOT EXISTS migraine_metadata (
     result
   }
 
+  private lazy val acquireMetadataLock: ZIO[Connection, MigraineError, Unit] =
+    executeSQL("LOCK TABLE migraine_metadata IN EXCLUSIVE MODE;")
+
+//  def runTransaction
 //  def getSchema: Task[String] = ZIO.attemptBlocking {
 //    // get all tables
 //    // get all columns for each table

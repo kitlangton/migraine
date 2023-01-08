@@ -1,6 +1,8 @@
 package migraine
 
 final case class MigrationId(id: Int) extends AnyVal {
+  def next: MigrationId = MigrationId(id + 1)
+
   def <=(that: MigrationId): Boolean = id <= that.id
 }
 

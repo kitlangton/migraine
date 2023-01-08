@@ -3,6 +3,7 @@ package migraine
 import zio._
 
 import java.nio.file.{Files, Path, Paths}
+import java.sql.Connection
 import javax.sql.DataSource
 import scala.jdk.CollectionConverters.IteratorHasAsScala
 
@@ -16,20 +17,31 @@ import scala.jdk.CollectionConverters.IteratorHasAsScala
   *
   * ## Todos
   *   - Configurable database connection
+  *   - Configurable CLI (how and where to specify migrations folder, connection
+  *     info, etc?)
+  *     - migraine.conf? (home, project root, etc)
+  *     - the target local database will change per project
   *   - Ensure migration metadata is saved transactionally along with migration
   *   - Automatic migration tests
   *   - Dry run (by default?)
   *     - Schema diff
   *     - Warn for non-reversible migrations
   *   - Errors
+  *     - If a migration fails, the metadata and other migrations executed in
+  *       the same run should be rolled back.
   *     - If accidentally duplicated version ids interactively prompt user to
   *       resolve ambiguity
+  *     - postgres driver is missing (prompt user to add dependency)
+  *     - database connection issues
+  *     - ensure executed migrations haven't diverged from their stored file
+  *       (using checksum)
   *   - Warnings
   *     - adding column to existing table without default value
+  *     - missing migrations folder
   *   - Snapshotting
-  *     - Create snapshot CLI command
   *     - If fresh database, begin from most recent snapshot, otherwise, ignore
   *       snapshots
+  *     - Create snapshot CLI command
   *   - Generate down migrations automatically
   *   - Rollback
   *     - UX: Check to see how many migrations were run "recently", or in the
@@ -70,47 +82,67 @@ import scala.jdk.CollectionConverters.IteratorHasAsScala
 
 final case class Migraine(databaseManager: DatabaseManager) {
 
+  private val DEFAULT_MIGRATIONS_PATH =
+    "src/main/resources/migrations"
+
   def migrate: Task[Unit] =
     for {
-      path <- ZIO.attempt(Paths.get("src/main/resources/migrations"))
+      path <- findResourcePath(DEFAULT_MIGRATIONS_PATH)
       _    <- migrateFolder(path)
     } yield ()
+
+  // def reset
+  // - drop all tables
+  // - delete all migration metadata
+  // - re-migrate
+
+  private def findResourcePath(name: String): Task[Path] =
+    ZIO.attempt(Paths.get(getClass.getResource(name).toURI))
 
   private[migraine] def getAllMetadata: Task[List[Metadata]] =
     databaseManager.getAllMetadata
 
   private[migraine] def migrateFolder(migrationsPath: Path): Task[Unit] =
     for {
-      allMigrations   <- getMigrations(migrationsPath)
-      latestSnapshot   = allMigrations.find(_.isSnapshot)
-      upMigrations     = allMigrations.filter(_.isUp)
-      latestMigration <- databaseManager.getLatestMigrationId
-      _ <- (latestMigration, latestSnapshot) match {
-             // If there is at least one previously run migration,
-             // only run newer Up migrations.
+      allMigrations     <- getMigrations(migrationsPath)
+      latestSnapshot     = allMigrations.find(_.isSnapshot)
+      upMigrations       = allMigrations.filter(_.isUp)
+      latestMigrationId <- databaseManager.getLatestMigrationId
+      _ <- (latestMigrationId, latestSnapshot) match {
+             // If there is at least one previously executed migration,
+             // only execute newer Up migrations.
              case (Some(latestMigration), _) =>
                val migrationsToRun = upMigrations.dropWhile(_.id <= latestMigration)
-               ZIO.foreachDiscard(migrationsToRun)(runMigration)
+               runMigrationsInTransaction(migrationsToRun)
 
-             // If there are no previously run migrations, and there is a snapshot,
-             // run the snapshot and all migrations after it
+             // If there are no previously executed migrations, and there is a snapshot,
+             // execute the snapshot and all migrations after it
              case (None, Some(latestSnapshot)) =>
                val migrationsToRun = upMigrations.dropWhile(_.id <= latestSnapshot.id)
-               ZIO.foreachDiscard(latestSnapshot :: migrationsToRun)(runMigration)
+               runMigrationsInTransaction(latestSnapshot :: migrationsToRun)
 
-             // If there are no previously run migrations, and there is no snapshot,
+             // If there are no previously executed migrations, and there is no snapshot,
              // run all migrations.
              case (None, None) =>
-               ZIO.foreachDiscard(upMigrations)(runMigration)
+               runMigrationsInTransaction(upMigrations)
            }
     } yield ()
 
+  def runMigrationsInTransaction(migrations: List[Migration]): Task[Unit] =
+    databaseManager.transact {
+      ZIO.foreachDiscard(migrations)(runMigration)
+    }
+
+  /** Returns a list of Migrations, sorted by id (ascending).
+    */
   private def getMigrations(migrationsPath: Path): Task[List[Migration]] =
     for {
       paths      <- ZIO.attempt(Files.list(migrationsPath).iterator().asScala.toList)
       migrations <- ZIO.foreach(paths)(parseMigration)
     } yield migrations.sortBy(_.id)
 
+  /** Parses a [[Migration]] from its file path.
+    */
   private def parseMigration(path: Path): Task[Migration] =
     path.getFileName.toString match {
       case s"V${version}_SNAPSHOT__${name}.sql" =>
@@ -123,10 +155,19 @@ final case class Migraine(databaseManager: DatabaseManager) {
         ZIO.fail(new Exception(s"Invalid migration path: $path"))
     }
 
-  private def updateMetadata(migration: Migration): Task[Unit] =
+  private def createEmptyMigration(name: String, migrationsPath: Path): Task[Unit] =
+    for {
+      migrations <- getMigrations(migrationsPath)
+      nextId      = migrations.lastOption.map(_.id.next).getOrElse(MigrationId(1))
+      idString    = nextId.id.toString.reverse.padTo(4, '0').reverse
+      path        = Paths.get(s"$migrationsPath/V${idString}__$name.sql")
+      _          <- ZIO.writeFile(path, s"-- $name")
+    } yield ()
+
+  private def updateMetadata(migration: Migration): ZIO[Connection, MigraineError, Unit] =
     databaseManager.saveRanMigration(migration)
 
-  private def runMigration(migration: Migration): Task[Unit] =
+  private def runMigration(migration: Migration): ZIO[Connection, Throwable, Unit] =
     for {
       contents <- ZIO.readFile(migration.path)
       _        <- databaseManager.executeSQL(contents)
