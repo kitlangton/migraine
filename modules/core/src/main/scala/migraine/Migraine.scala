@@ -4,9 +4,8 @@ import database.info.SchemaLoader
 import org.postgresql.ds.PGSimpleDataSource
 import zio._
 
-import java.io.File
 import java.nio.file.attribute.BasicFileAttributes
-import java.nio.file.{FileSystem, Files, Path, Paths}
+import java.nio.file.{Files, Path, Paths}
 import java.sql.Connection
 import javax.sql.DataSource
 import scala.jdk.CollectionConverters._

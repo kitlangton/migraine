@@ -1,8 +1,7 @@
 package database.info
 
 import database.info.ResultSetSyntax._
-import org.postgresql.ds.PGSimpleDataSource
-import zio.{Task, ZIO, ZIOAppDefault, ZLayer}
+import zio.{Task, ZIO, ZLayer}
 
 import javax.sql.DataSource
 

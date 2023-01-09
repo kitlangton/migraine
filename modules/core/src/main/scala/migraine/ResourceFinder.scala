@@ -1,10 +1,8 @@
 package migraine
-
-import sun.jvm.hotspot.HelloWorld.e
 import zio._
 
 import java.nio.file.{FileSystemNotFoundException, FileSystems, Files, Path, Paths}
-import scala.jdk.CollectionConverters.{EnumerationHasAsScala, IteratorHasAsScala}
+import scala.jdk.CollectionConverters.IteratorHasAsScala
 
 object ResourceFinder extends ZIOAppDefault {
   def getResourceFolderPath(folder: String): Task[Path] = ZIO.attemptBlocking {
