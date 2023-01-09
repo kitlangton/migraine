@@ -12,24 +12,43 @@ inThisBuild(
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
+val zioVersion = "2.0.5"
+
+lazy val sharedSettings =
+  Seq(
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio"          % zioVersion,
+      "dev.zio" %% "zio-test"     % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
+    ),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
+  )
+
+lazy val root = (project in file("."))
+  .settings(
+    name           := "migraine",
+    publish / skip := true
+  )
+  .aggregate(core, cli)
+
 lazy val core = (project in file("modules/core"))
   .settings(
-    name := "migraine",
+    name := "migraine-core",
+    sharedSettings,
     libraryDependencies ++= Seq(
-      "dev.zio"               %% "zio"                               % "2.0.5",
-      "dev.zio"               %% "zio-test"                          % "2.0.5" % Test,
       "org.postgresql"         % "postgresql"                        % "42.5.1",
       "io.github.scottweaver" %% "zio-2-0-testcontainers-postgresql" % "0.9.0",
-      "org.slf4j"              % "slf4j-nop"                         % "2.0.5"
+      "org.slf4j"              % "slf4j-nop"                         % zioVersion
     )
   )
+  .enablePlugins(JavaAppPackaging)
 
 lazy val cli = (project in file("modules/cli"))
   .settings(
     name := "migraine-cli",
+    sharedSettings,
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio"      % "2.0.5",
-      "dev.zio" %% "zio-test" % "2.0.5" % Test
+      "dev.zio" %% "zio-cli" % "0.3.0-M02"
     )
   )
   .dependsOn(core)

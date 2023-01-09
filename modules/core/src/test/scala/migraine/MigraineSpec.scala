@@ -1,14 +1,11 @@
 package migraine
 
-import io.github.scottweaver.zio.testcontainers.postgres.ZPostgreSQLContainer
 import migraine.MigrationSpecUtils.getMigrationsPath
 import zio.Clock.ClockLive
 import zio._
 import zio.test._
 
-import java.nio.file.{Path, Paths}
-
-object MigraineSpec extends ZIOSpecDefault {
+object MigraineSpec extends DatabaseSpec {
 
   val spec =
     suite("MigraineSpec")(
@@ -28,9 +25,5 @@ object MigraineSpec extends ZIOSpecDefault {
                    .withClock(ClockLive)
         } yield assertTrue(true)
       }
-    ).provide(
-      Migraine.live,
-      ZPostgreSQLContainer.Settings.default,
-      ZPostgreSQLContainer.live
-    )
+    ).provide(Migraine.live, datasourceLayer)
 }

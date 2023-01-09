@@ -1,6 +1,4 @@
 package migraine
-
-import org.postgresql.ds.PGSimpleDataSource
 import zio._
 
 import java.sql.Connection
@@ -111,16 +109,6 @@ CREATE TABLE IF NOT EXISTS migraine_metadata (
 }
 
 object DatabaseManager {
-
-  def custom(url: String, user: String, password: String): ULayer[DatabaseManager] =
-    ZLayer {
-      val manager = DatabaseManager(new PGSimpleDataSource() {
-        setUrl(url)
-        setUser(user)
-        setPassword(password)
-      })
-      manager.createMetadataTableIfNotExists.orDie.as(manager)
-    }
 
   val live: ZLayer[DataSource, Nothing, DatabaseManager] =
     ZLayer {

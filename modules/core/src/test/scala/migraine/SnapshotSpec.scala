@@ -1,19 +1,23 @@
 package migraine
 
-import io.github.scottweaver.zio.testcontainers.postgres.ZPostgreSQLContainer
 import migraine.MigrationSpecUtils.getMigrationsPath
 import zio.test._
 
-object SnapshotSpec extends ZIOSpecDefault {
+import javax.sql.DataSource
+
+object SnapshotSpec extends DatabaseSpec {
 
   val spec =
     suite("SnapshotSpec")(
+      /** There are two snapshots in the migrations folder, so migraine will
+        * begin executing from the LATEST snapshot (V3 in this case).
+        */
       test("on a fresh database, starts from latest snapshot") {
         for {
           _        <- Migraine.migrateFolder(getMigrationsPath("snapshot_test_with_snapshot"))
           metadata <- Migraine.getAllMetadata
         } yield assertTrue {
-          metadata.map(_.name) == List("create_users_and_posts", "add_slug_to_posts")
+          metadata.map(_.name) == List("V3_SNAPSHOT", "add_alias_to_users")
         }
       },
       test("on a previously migrated database, ignores snapshots") {
@@ -22,13 +26,9 @@ object SnapshotSpec extends ZIOSpecDefault {
           _        <- Migraine.migrateFolder(getMigrationsPath("snapshot_test_with_snapshot"))
           metadata <- Migraine.getAllMetadata
         } yield assertTrue {
-          metadata.map(_.name) == List("create_users", "create_posts", "add_slug_to_posts")
+          metadata.map(_.name) == List("create_users", "create_posts", "add_slug_to_posts", "add_alias_to_users")
         }
       }
-    ).provide(
-      ZPostgreSQLContainer.Settings.default,
-      ZPostgreSQLContainer.live,
-      Migraine.live
-    )
+    ).provide(Migraine.live, datasourceLayer)
 
 }
