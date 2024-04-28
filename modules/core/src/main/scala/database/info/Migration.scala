@@ -56,4 +56,50 @@ CREATE TABLE ${tableInfo.name} (
   }
 
   def diff(old: List[TableInfo], incoming: List[TableInfo]): List[Migration] = ???
+
+  def generateSchemaDump(schema: Schema): String = {
+    val createTables          = schema.tables.map(createTable).mkString("\n\n")
+    val foreignKeyConstraints = schema.tables.map(alterTableAddForeignKey).mkString("\n\n")
+
+    createTables ++ "\n\n" ++ foreignKeyConstraints
+  }
+
+  def createTable(tableInfo: TableInfo): String = {
+    val columns: Chunk[String] = tableInfo.columnInfo.map { columnInfo =>
+      val basic   = Chunk(s"${columnInfo.name} ${columnInfo.columnType.renderSql}")
+      val notNull = if (columnInfo.isNullable) Chunk.empty else Chunk("NOT NULL")
+      val default = columnInfo.default.map(d => Chunk(s"DEFAULT $d")).getOrElse(Chunk.empty)
+      (basic ++ notNull ++ default).mkString(" ")
+    }
+
+    val primaryKey = tableInfo.primaryKeyInfo
+      .map { pk =>
+        Chunk(s"CONSTRAINT ${pk.name} PRIMARY KEY ${pk.columns.mkString("(", ", ", ")")}")
+      }
+      .getOrElse(Chunk.empty)
+
+    val info = columns ++ primaryKey
+
+    s"""
+CREATE TABLE ${tableInfo.name} (
+  ${info.mkString(",\n  ")}
+);
+    """.trim
+  }
+
+  def alterTableAddForeignKey(tableInfo: TableInfo): String = {
+    val addForeignKeys = tableInfo.foreignKeys
+      .map { fkInfo =>
+        val (selfColumns, parentColumns) = fkInfo.relations.unzip
+        val parentColumnsStr             = parentColumns.mkString("(", ", ", ")")
+        val selfColumnsStr               = selfColumns.mkString("(", ", ", ")")
+        s"ADD FOREIGN KEY $selfColumnsStr REFERENCES ${fkInfo.parentKeyTable} $parentColumnsStr"
+      }
+      .mkString(",\n  ")
+
+    s"""
+ALTER TABLE ${tableInfo.name}
+  $addForeignKeys;
+""".trim
+  }
 }

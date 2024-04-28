@@ -10,7 +10,7 @@ case class TableInfo(
     primaryKeyInfo: Option[PrimaryKeyInfo],
     foreignKeys: Chunk[ForeignKeyInfo],
     indices: Chunk[IndexInfo]
-)
+) {}
 
 object TableInfo {
   def fromResultSet(resultSet: ResultSet, metaData: DatabaseMetaData): TableInfo = {

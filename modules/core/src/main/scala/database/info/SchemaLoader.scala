@@ -6,15 +6,9 @@ import zio.{Task, ZIO, ZLayer}
 import javax.sql.DataSource
 
 final case class Schema(tables: List[TableInfo]) {
+
   def filterTables(p: TableInfo => Boolean): Schema =
     copy(tables = tables.filter(p))
-
-  def toDDL: String =
-    tables
-      .map { ti =>
-        Migration.render(Migration.CreateTable(ti))
-      }
-      .mkString("\n\n")
 
 }
 
@@ -35,15 +29,6 @@ case class SchemaLoader(dataSource: DataSource) {
 
     tables.toList
   }
-
-  val getSchemaDDL: Task[String] =
-    ZIO.attemptBlocking {
-      unsafeTableInfo
-        .map { ti =>
-          Migration.render(Migration.CreateTable(ti))
-        }
-        .mkString("\n\n")
-    }
 
 }
 

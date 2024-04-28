@@ -2,26 +2,26 @@ package migraine
 
 import database.info.SchemaLoader
 import org.postgresql.ds.PGSimpleDataSource
-import zio._
+import zio.*
 
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.{Files, Path, Paths}
 import java.sql.Connection
 import javax.sql.DataSource
-import scala.jdk.CollectionConverters._
+import scala.jdk.CollectionConverters.*
 
 final case class Migraine(
     databaseManager: DatabaseManager,
     schemaLoader: SchemaLoader
-) {
+):
 
   private val DEFAULT_MIGRATIONS_FOLDER_RESOURCE = "/migrations/"
 
   def migrate: Task[Unit] =
-    for {
+    for
       path <- findResourcePath(DEFAULT_MIGRATIONS_FOLDER_RESOURCE)
       _    <- migrateFolder(path)
-    } yield ()
+    yield ()
 
   // def reset
   // - drop all tables
@@ -35,12 +35,12 @@ final case class Migraine(
     databaseManager.getAllMetadata
 
   private[migraine] def migrateFolder(migrationsPath: Path): Task[Unit] =
-    for {
+    for
       allMigrations     <- getMigrations(migrationsPath).debug("ALL MIGRATIONS")
       latestSnapshot     = allMigrations.findLast(_.isSnapshot)
       upMigrations       = allMigrations.filter(_.isUp)
       latestMigrationId <- databaseManager.getLatestMigrationId
-      _ <- (latestMigrationId, latestSnapshot) match {
+      _ <- (latestMigrationId, latestSnapshot) match
              // If there is at least one previously executed migration,
              // only execute newer Up migrations.
              case (Some(latestMigrationId), _) =>
@@ -57,8 +57,7 @@ final case class Migraine(
              // run all migrations.
              case (None, None) =>
                runMigrationsInTransaction(upMigrations)
-           }
-    } yield ()
+    yield ()
 
   // 1. ensure that all migrations have ran (latest migration id is the same as highest version in folder)
   // 2. load schema
@@ -68,19 +67,24 @@ final case class Migraine(
   //  - Make sure there exists at least one migration
   //  - Make sure the snapshot doesn't already exist for the same id
   def snapshot: Task[Unit] =
-    for {
+    for
+      latestMigrationId    <- databaseManager.getLatestMigrationId
+      migrationsFolderPath <- findResourcePath(DEFAULT_MIGRATIONS_FOLDER_RESOURCE)
+      ddl                  <- generateSnapshotDDL(migrationsFolderPath)
+      migrationsSrcPath    <- findDefaultMigrationFolder.debug("FOLDER PATH")
+      _                    <- ZIO.writeFile(s"$migrationsSrcPath/V${latestMigrationId.get.id}_SNAPSHOT.sql", ddl)
+    yield ()
+
+  private[migraine] def generateSnapshotDDL(migrationsPath: Path): Task[String] =
+    for
       latestMigrationId      <- databaseManager.getLatestMigrationId
-      migrationsFolderPath   <- findResourcePath(DEFAULT_MIGRATIONS_FOLDER_RESOURCE)
-      allMigrations          <- getMigrations(migrationsFolderPath)
+      allMigrations          <- getMigrations(migrationsPath)
       highestWrittenMigration = allMigrations.map(_.id).maxOption
       _ <- ZIO
              .fail(new Error("All migrations must have run before snapshot"))
              .unless(latestMigrationId == highestWrittenMigration)
-      schema            <- schemaLoader.getSchema
-      ddl                = schema.filterTables(_.name != "migraine_metadata").toDDL
-      migrationsSrcPath <- findDefaultMigrationFolder.debug("FOLDER PATH")
-      _                 <- ZIO.writeFile(s"$migrationsSrcPath/V${latestMigrationId.get.id}_SNAPSHOT.sql", ddl)
-    } yield ()
+      schema <- schemaLoader.getSchema
+    yield database.info.Migration.generateSchemaDump(schema.filterTables(_.name != "migraine_metadata"))
 
   private def runMigrationsInTransaction(migrations: List[Migration]): Task[Unit] =
     databaseManager.transact {
@@ -90,17 +94,16 @@ final case class Migraine(
   /** Returns a list of Migrations, sorted by id (ascending).
     */
   private def getMigrations(migrationsPath: Path): Task[List[Migration]] =
-    for {
+    for
       paths      <- ZIO.attempt(Files.list(migrationsPath).iterator().asScala.toList)
       migrations <- ZIO.foreach(paths)(parseMigration)
-    } yield migrations.sortBy(_.id)
+    yield migrations.sortBy(_.id)
 
   /** Parses a [[Migration]] from its file path.
     */
   private def parseMigration(path: Path): Task[Migration] =
-    path.getFileName.toString match {
+    path.getFileName.toString match
       case s"V${version}_SNAPSHOT.sql" =>
-        println(s"version ${version}")
         ZIO.succeed(Migration(MigrationId(version.toInt), s"V${version}_SNAPSHOT", path, MigrationType.Snapshot))
       case s"V${version}_DOWN__${name}.sql" =>
         ZIO.succeed(Migration(MigrationId(version.toInt), name, path, MigrationType.Down))
@@ -108,48 +111,43 @@ final case class Migraine(
         ZIO.succeed(Migration(MigrationId(version.toInt), name, path, MigrationType.Up))
       case _ =>
         ZIO.fail(new Exception(s"Invalid migration path: $path"))
-    }
 
   private def updateMetadata(migration: Migration): ZIO[Connection, MigraineError, Unit] =
     databaseManager.saveRanMigration(migration)
 
   private def runMigration(migration: Migration): ZIO[Connection, Throwable, Unit] =
-    for {
+    for
       contents <- ZIO.attemptBlocking(new String(Files.readAllBytes(migration.path)))
       _        <- databaseManager.executeSQL(contents)
       _        <- updateMetadata(migration)
-    } yield ()
+    yield ()
 
   private def findDefaultMigrationFolder: Task[Path] =
     ZIO.attemptBlocking {
-      findMigrationsFolders().headOption match {
+      findMigrationsFolders().headOption match
         case Some(path) => path
         case None       => throw new Error("Missing migration folder")
-      }
     }
 
-  private def findMigrationsFolders(): Seq[Path] = {
+  // TODO: This should use a configurable migrations path
+  private def findMigrationsFolders(): Seq[Path] =
     val cwd: Path = Paths.get(".")
     val migrationsFolders = Files
       .find(
         cwd,
         Integer.MAX_VALUE,
-        (path: Path, _: BasicFileAttributes) => {
+        (path: Path, _: BasicFileAttributes) =>
           val pathString = path.toString
           pathString.endsWith("resources/migrations") && Files.isDirectory(path) &&
           pathString.contains("src/main/")
-        }
       )
       .iterator()
       .asScala
       .toSeq
 
     migrationsFolders
-  }
 
-}
-
-object Migraine {
+object Migraine:
 
   val migrate: ZIO[Migraine, Throwable, Unit] =
     ZIO.serviceWithZIO[Migraine](_.migrate)
@@ -171,24 +169,23 @@ object Migraine {
 
   private def dataSourceLayer(url: String, user: String, password: String) =
     ZLayer.succeed(
-      new PGSimpleDataSource() {
+      new PGSimpleDataSource():
         setUrl(url)
         setUser(user)
         setPassword(password)
-      }
     )
 
   private lazy val layer: ZLayer[DatabaseManager with SchemaLoader, Nothing, Migraine] =
     ZLayer.fromFunction(Migraine.apply _)
-}
 
-object MigrationsDemo extends ZIOAppDefault {
+object MigrationsDemo extends ZIOAppDefault:
   val run = {
-    for {
-      _ <- Migraine.migrate
-    } yield ()
+    for _ <- Migraine.snapshot
+    yield ()
   }
     .provide(
       Migraine.custom("jdbc:postgresql://localhost:5432/headache", "kit", "")
     )
-}
+
+// pg_dump --schema-only --host localhost --port 5432 --user kit --database headache > schema.sql
+//

@@ -1,38 +1,42 @@
 package migraine
-import zio._
+import zio.*
 
 import java.sql.Connection
 import javax.sql.DataSource
 
 final case class Metadata(id: MigrationId, name: String, hash: String)
 
-final case class DatabaseManager(dataSource: DataSource) {
+final case class DatabaseManager(dataSource: DataSource):
 
   def executeSQL(string: String): ZIO[Connection, MigraineError, Unit] =
-    for {
+    for
       conn <- ZIO.service[Connection]
-      _    <- ZIO.logInfo(s"Executing SQL: $string")
+      _    <- ZIO.logDebug(s"Executing SQL: $string")
       _ <-
         ZIO
-          .attemptBlocking(conn.createStatement().execute(string))
+          .attemptBlocking {
+            val stmt = conn.createStatement()
+            try stmt.execute(string)
+            finally stmt.close()
+          }
           .refineOrDie { case sqlException: org.postgresql.util.PSQLException =>
             MigraineError.SqlError.fromSQLException(string, sqlException)
           }
-    } yield ()
+    yield ()
 
   def transact[R: Tag, E <: Throwable, A](
       effect: ZIO[Connection with R, E, A],
       withLock: Boolean = true
   ): ZIO[R, Throwable, A] =
     ZIO.scoped[R] {
-      for {
+      for
         conn     <- getConnection
         connLayer = ZLayer.succeed(conn)
         _        <- ZIO.attemptBlocking(conn.setAutoCommit(false))
         _        <- acquireMetadataLock.provide(connLayer).when(withLock)
         _        <- ZIO.addFinalizer(ZIO.succeedBlocking(conn.commit()))
-        res      <- effect.provideSome[R](connLayer)
-      } yield res
+        res      <- effect.provideSomeLayer[R](connLayer)
+      yield res
     }
 
   lazy val getConnection: ZIO[Scope, Throwable, Connection] =
@@ -89,34 +93,36 @@ CREATE TABLE IF NOT EXISTS migraine_metadata (
   private lazy val acquireMetadataLock: ZIO[Connection, MigraineError, Unit] =
     executeSQL("LOCK TABLE migraine_metadata IN EXCLUSIVE MODE;")
 
-//  def runTransaction
-//  def getSchema: Task[String] = ZIO.attemptBlocking {
-//    // get all tables
-//    // get all columns for each table
-//    // get all constraints for each table
-//    // get all indexes for each table
-//    val conn = dataSource.getConnection
-//    val stmt = conn.prepareStatement("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")
-//    val rs   = stmt.executeQuery()
-//    val tables = Iterator
-//      .continually(rs.next())
-//      .takeWhile(identity)
-//      .map(_ => rs.getString("table_name"))
-//      .toList
-//    conn.close()
-//    tables.mkString(", ")
-//  }
-}
+  def dropAllTables = ZIO
+    .attemptBlocking {
+      val conn = dataSource.getConnection
+      val stmt = conn.prepareStatement(
+        s"SELECT table_name FROM information_schema.tables WHERE table_schema = '${conn.getSchema}'"
+      )
+      val rs = stmt.executeQuery()
+      val tables = Iterator
+        .continually(rs.next())
+        .takeWhile(identity)
+        .map { _ =>
+          rs.getString("table_name")
+        }
+        .toList
+      conn.close()
+      tables
+    }
+    .flatMap { tables =>
+      ZIO.foreachParDiscard(tables) { table =>
+        executeSQL(s"DROP TABLE $table CASCADE;")
+      }
+    }
 
-object DatabaseManager {
+object DatabaseManager:
 
   val live: ZLayer[DataSource, Nothing, DatabaseManager] =
     ZLayer {
-      for {
+      for
         dataSource <- ZIO.service[DataSource]
         manager     = DatabaseManager(dataSource)
         _          <- manager.createMetadataTableIfNotExists.orDie
-      } yield manager
+      yield manager
     }
-
-}

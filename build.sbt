@@ -1,6 +1,6 @@
 inThisBuild(
   List(
-    scalaVersion                                   := "2.13.10",
+    scalaVersion                                   := "3.3.3",
     version                                        := "0.0.1",
     organization                                   := "io.github.kitlangton",
     organizationName                               := "kitlangton",
@@ -12,7 +12,7 @@ inThisBuild(
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
-val zioVersion = "2.0.5"
+val zioVersion = "2.0.22"
 
 lazy val sharedSettings =
   Seq(
@@ -36,9 +36,9 @@ lazy val core = (project in file("modules/core"))
     name := "migraine-core",
     sharedSettings,
     libraryDependencies ++= Seq(
-      "org.postgresql"         % "postgresql"                        % "42.5.1",
-      "io.github.scottweaver" %% "zio-2-0-testcontainers-postgresql" % "0.9.0",
-      "org.slf4j"              % "slf4j-nop"                         % zioVersion
+      "org.postgresql"         % "postgresql"                        % "42.7.3",
+      "io.github.scottweaver" %% "zio-2-0-testcontainers-postgresql" % "0.10.0",
+      "org.slf4j"              % "slf4j-nop"                         % "2.0.13"
     )
   )
   .enablePlugins(JavaAppPackaging)
@@ -48,7 +48,7 @@ lazy val cli = (project in file("modules/cli"))
     name := "migraine-cli",
     sharedSettings,
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-cli" % "0.3.0-M02"
+      "dev.zio" %% "zio-cli" % "0.5.0"
     )
   )
   .dependsOn(core)

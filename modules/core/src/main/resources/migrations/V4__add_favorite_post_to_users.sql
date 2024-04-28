@@ -1,0 +1,1 @@
+ALTER TABLE users ADD COLUMN favorite_post_id UUID REFERENCES posts(id);

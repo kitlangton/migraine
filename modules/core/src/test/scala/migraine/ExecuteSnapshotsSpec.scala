@@ -5,10 +5,10 @@ import zio.test._
 
 import javax.sql.DataSource
 
-object SnapshotSpec extends DatabaseSpec {
+object ExecuteSnapshotsSpec extends DatabaseSpec {
 
   val spec =
-    suite("SnapshotSpec")(
+    suite("ExecuteSnapshotsSpec")(
       /** There are two snapshots in the migrations folder, so migraine will
         * begin executing from the LATEST snapshot (V3 in this case).
         */
